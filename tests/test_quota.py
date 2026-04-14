@@ -63,7 +63,15 @@ def test_find_oauth_token_from_credentials_file(tmp_path, monkeypatch):
 
 def test_find_oauth_token_missing_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr("quota._CREDENTIALS_PATH", tmp_path / "nonexistent.json")
+    # Also neutralise the keychain fallback so this test isolates file-only lookup
+    monkeypatch.setattr("quota._read_macos_keychain", lambda: None)
     assert find_oauth_token() is None
+
+
+def test_find_oauth_token_falls_back_to_keychain(tmp_path, monkeypatch):
+    monkeypatch.setattr("quota._CREDENTIALS_PATH", tmp_path / "nonexistent.json")
+    monkeypatch.setattr("quota._read_macos_keychain", lambda: "sk-ant-oat01-KC")
+    assert find_oauth_token() == "sk-ant-oat01-KC"
 
 
 def test_fetch_oauth_quota_parses_response():

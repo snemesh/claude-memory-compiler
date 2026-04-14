@@ -7,6 +7,8 @@ with model pricing table.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,23 +17,49 @@ import requests
 
 _USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
 _HTTP_TIMEOUT_S = 10
+_KEYCHAIN_SERVICE = "Claude Code-credentials"
 
 _CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+
+
+def _read_macos_keychain() -> str | None:
+    """On macOS, Claude Code stores the OAuth blob in the Keychain under
+    service='Claude Code-credentials'. Returns None if not on macOS, if
+    security(1) fails, or if the blob is malformed.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", _KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        return None
+    return data.get("claudeAiOauth", {}).get("accessToken")
 
 
 def find_oauth_token() -> str | None:
     """Locate the Claude Code OAuth access token.
 
-    Searches ~/.claude/.credentials.json for claudeAiOauth.accessToken.
-    Returns None if the file is absent or the token is missing.
+    Order: credentials file (~/.claude/.credentials.json), then macOS keychain.
+    Returns None if no source yields a token.
     """
-    if not _CREDENTIALS_PATH.exists():
-        return None
-    try:
-        data = json.loads(_CREDENTIALS_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    return data.get("claudeAiOauth", {}).get("accessToken")
+    if _CREDENTIALS_PATH.exists():
+        try:
+            data = json.loads(_CREDENTIALS_PATH.read_text(encoding="utf-8"))
+            token = data.get("claudeAiOauth", {}).get("accessToken")
+            if token:
+                return token
+        except (json.JSONDecodeError, OSError):
+            pass
+    return _read_macos_keychain()
 
 
 def fetch_oauth_quota(token: str) -> QuotaSnapshot | None:
