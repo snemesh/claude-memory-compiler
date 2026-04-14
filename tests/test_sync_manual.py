@@ -58,7 +58,7 @@ def test_run_manual_sync_invokes_pipeline_and_writes_state(
     manifest = [ArticleSpec("x", ArticlePriority.SERVICES, ["x.go"])]
     queue = [QueueItem("x", ArticlePriority.SERVICES, "manual")]
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(text="[]", cost_usd=0.001, model="claude-haiku-4-5")
         (cwd / "x.md").write_text("# X\n\nBody.\n")
@@ -104,7 +104,7 @@ def test_run_manual_sync_updates_state_between_chunks(tmp_path, monkeypatch):
 
     snapshots: list[dict] = []
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(text="[]", cost_usd=0.001, model="claude-haiku-4-5")
         slug_line = prompt.split("\n", 1)[0]
@@ -157,7 +157,7 @@ def test_run_manual_sync_final_state_keeps_per_entry_cost(tmp_path, monkeypatch)
     manifest = [ArticleSpec("x", ArticlePriority.SERVICES, ["x.go"])]
     queue = [QueueItem("x", ArticlePriority.SERVICES, "manual")]
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(text="[]", cost_usd=0.001, model="claude-haiku-4-5")
         (cwd / "x.md").write_text("# X\n\nBody.\n")

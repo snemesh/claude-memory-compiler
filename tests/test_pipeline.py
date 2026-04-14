@@ -45,7 +45,7 @@ def test_run_pipeline_processes_every_queue_item(repo_and_wiki, manifest, monkey
         QueueItem("api-gateway", ArticlePriority.SERVICES, "manual"),
     ]
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate wiki article" in prompt:
             return LLMResponse(text="```json\n[]\n```", cost_usd=0.002,
                                model="claude-haiku-4-5")
@@ -77,7 +77,7 @@ def test_run_pipeline_emits_log_entries(repo_and_wiki, manifest, monkeypatch):
     repo, wiki = repo_and_wiki
     log_file = wiki / "log.md"
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(text="[]", cost_usd=0.001, model="claude-haiku-4-5")
         slug = _slug_from_prompt(prompt)
@@ -104,7 +104,7 @@ def test_run_pipeline_emits_log_entries(repo_and_wiki, manifest, monkeypatch):
 def test_run_pipeline_runs_pass2_at_end(repo_and_wiki, manifest, monkeypatch):
     repo, wiki = repo_and_wiki
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(text="[]", cost_usd=0.0, model="claude-haiku-4-5")
         slug = _slug_from_prompt(prompt)
@@ -151,7 +151,7 @@ def test_run_pipeline_requeues_articles_with_pass3_issues(
     compile_calls: list[str] = []
     validate_call_count = [0]
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             validate_call_count[0] += 1
             if validate_call_count[0] == 1:
@@ -189,7 +189,7 @@ def test_run_pipeline_feedback_loop_disabled_by_default(
     repo, wiki = repo_and_wiki
     compile_calls: list[str] = []
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         if "Validate" in prompt:
             return LLMResponse(
                 text='```json\n[{"kind": "stale", '

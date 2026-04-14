@@ -161,6 +161,7 @@ def validate_article(
         model=_MODEL_PASS3,
         cwd=wiki_dir,
         max_turns=_MAX_TURNS,
+        allowed_tools=[],  # Haiku must not call tools — JSON response only
     )
     issues = parse_validation_response(response.text)
     return ValidationResult(

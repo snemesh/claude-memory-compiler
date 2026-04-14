@@ -106,13 +106,17 @@ def test_validate_article_calls_llm_and_returns_issues(tmp_path, monkeypatch):
 
 def test_validate_article_uses_haiku_model(tmp_path, monkeypatch):
     (tmp_path / "x.md").write_text("# X\n")
-    captured_model = {}
+    captured = {}
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
-        captured_model["model"] = model
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
+        captured["model"] = model
+        captured["allowed_tools"] = allowed_tools
         return LLMResponse(text="[]", cost_usd=0.0, model=model)
 
     monkeypatch.setattr("validator.call_llm", fake_llm)
 
     validate_article(article_slug="x", wiki_dir=tmp_path, sibling_slugs=[])
-    assert "haiku" in captured_model["model"].lower()
+    assert "haiku" in captured["model"].lower()
+    # Validator must disable tools to prevent Haiku from reading files /
+    # wandering off into multi-turn tool use.
+    assert captured["allowed_tools"] == []

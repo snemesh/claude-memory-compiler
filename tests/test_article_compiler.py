@@ -84,7 +84,7 @@ def test_compile_article_writes_body_and_provenance(tmp_path, monkeypatch):
     )
     item = QueueItem(slug="clubs", priority=ArticlePriority.SERVICES, trigger="manual")
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         article_path = wiki / "clubs.md"
         article_path.write_text("# Clubs\n\nClubs are organizations...\n", encoding="utf-8")
         return LLMResponse(text="Wrote clubs.md", cost_usd=0.12, model=model)
@@ -124,7 +124,7 @@ def test_compile_article_preserves_existing_body_when_llm_skips_write(
                        sources=["x.go"])
     item = QueueItem("clubs", ArticlePriority.SERVICES, "manual")
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         return LLMResponse(text="No changes needed", cost_usd=0.02, model=model)
 
     monkeypatch.setattr("article_compiler.call_llm", fake_llm)
@@ -170,7 +170,7 @@ def test_compile_article_includes_feedback_in_prompt(tmp_path, monkeypatch):
 
     captured_prompt = {}
 
-    def fake_llm(prompt, model, cwd, max_turns=30):
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
         captured_prompt["p"] = prompt
         (wiki / "x.md").write_text("# X\n\nBody.\n")
         return LLMResponse(text="ok", cost_usd=0.10, model="claude-sonnet-4-6")
