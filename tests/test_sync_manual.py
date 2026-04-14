@@ -146,6 +146,37 @@ def test_run_manual_sync_updates_state_between_chunks(tmp_path, monkeypatch):
     assert snapshots[1]["total_cost"] == pytest.approx(0.20)
 
 
+def test_run_manual_sync_refreshes_budget_pct_from_quota(tmp_path, monkeypatch):
+    """After each chunk, budget_used_5h/7d in state must reflect the latest
+    quota snapshot, not stay stuck at 0.0."""
+    repo = tmp_path / "repo"; repo.mkdir()
+    wiki = tmp_path / "wiki"; wiki.mkdir()
+    state_path = tmp_path / "state.json"
+    (repo / "x.go").write_text("")
+
+    manifest = [ArticleSpec("x", ArticlePriority.SERVICES, ["x.go"])]
+    queue = [QueueItem("x", ArticlePriority.SERVICES, "manual")]
+
+    def fake_llm(prompt, model, cwd, max_turns=30, allowed_tools=None):
+        if "Validate" in prompt:
+            return LLMResponse(text="[]", cost_usd=0.001, model="claude-haiku-4-5")
+        (cwd / "x.md").write_text("# X\n\nBody.\n")
+        return LLMResponse(text="ok", cost_usd=0.10, model="claude-sonnet-4-6")
+
+    monkeypatch.setattr("article_compiler.call_llm", fake_llm)
+    monkeypatch.setattr("validator.call_llm", fake_llm)
+    monkeypatch.setattr("sync.get_quota", lambda: _snap(five_pct=55.5, seven_pct=22.2))
+
+    run_manual_sync(
+        queue=queue, manifest=manifest, ripple_rules=[],
+        repo_root=repo, wiki_dir=wiki,
+        log_file=None, state_path=state_path,
+    )
+    state = load_state(state_path)
+    assert state.budget_used_5h_pct == pytest.approx(55.5)
+    assert state.budget_used_7d_pct == pytest.approx(22.2)
+
+
 def test_run_manual_sync_final_state_keeps_per_entry_cost(tmp_path, monkeypatch):
     """Final state must retain per-entry cost_usd from the live updates,
     not blank them out (old behavior wiped cost in the finalize step)."""

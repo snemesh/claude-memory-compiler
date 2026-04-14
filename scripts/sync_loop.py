@@ -181,8 +181,10 @@ def process_one_chunk(
         cost_usd=result.cost_usd,
         _current_chunk=None,
         _total_cost_usd=new_total,
-        _budget_used_5h_pct=(snap.five_hour_used_pct if snap else 0.0),
-        _budget_used_7d_pct=(snap.seven_day_used_pct if snap else 0.0),
+        _budget_used_5h_pct=(snap.five_hour_used_pct if snap
+                              else running_state.budget_used_5h_pct),
+        _budget_used_7d_pct=(snap.seven_day_used_pct if snap
+                              else running_state.budget_used_7d_pct),
     )
     save_state(state_path, done_state)
     return LoopOutcome(kind=LoopOutcomeKind.CHUNK_DONE, slug=entry.slug)

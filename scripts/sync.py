@@ -98,7 +98,9 @@ def _on_chunk_done(state_path: Path, slug: str, result: CompileResult) -> None:
     """Per-chunk callback: flip entry to DONE, record cost, persist atomically.
 
     Called after every Pass 1 compile. This is what makes `compile-status`
-    show live progress during a running manual sync.
+    show live progress during a running manual sync. Also refreshes
+    budget_used_*_pct fields from quota.get_quota() so statusline reflects
+    the latest burn rate without requiring a separate poll.
     """
     state = load_state(state_path)
     if state is None:
@@ -116,6 +118,11 @@ def _on_chunk_done(state_path: Path, slug: str, result: CompileResult) -> None:
             ))
         else:
             new_queue.append(entry)
+
+    snap = get_quota()
+    budget_5h = snap.five_hour_used_pct if snap else state.budget_used_5h_pct
+    budget_7d = snap.seven_day_used_pct if snap else state.budget_used_7d_pct
+
     updated = SyncState(
         status=state.status,
         started_at=state.started_at,
@@ -123,8 +130,8 @@ def _on_chunk_done(state_path: Path, slug: str, result: CompileResult) -> None:
         sleep_until=state.sleep_until,
         queue=new_queue,
         total_cost_usd=state.total_cost_usd + result.cost_usd,
-        budget_used_5h_pct=state.budget_used_5h_pct,
-        budget_used_7d_pct=state.budget_used_7d_pct,
+        budget_used_5h_pct=budget_5h,
+        budget_used_7d_pct=budget_7d,
     )
     save_state(state_path, updated)
 
