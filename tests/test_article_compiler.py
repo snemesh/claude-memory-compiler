@@ -157,6 +157,41 @@ def test_compile_article_records_trigger_in_provenance(tmp_path, monkeypatch):
     assert "ripple:api-gateway" in content
 
 
+from validator import ValidationIssue
+
+
+def test_compile_article_includes_feedback_in_prompt(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"; repo.mkdir()
+    wiki = tmp_path / "wiki"; wiki.mkdir()
+    (repo / "x.go").write_text("")
+
+    spec = ArticleSpec(slug="x", priority=ArticlePriority.SERVICES, sources=["x.go"])
+    item = QueueItem("x", ArticlePriority.SERVICES, "manual")
+
+    captured_prompt = {}
+
+    def fake_llm(prompt, model, cwd, max_turns=30):
+        captured_prompt["p"] = prompt
+        (wiki / "x.md").write_text("# X\n\nBody.\n")
+        return LLMResponse(text="ok", cost_usd=0.10, model="claude-sonnet-4-6")
+
+    monkeypatch.setattr("article_compiler.call_llm", fake_llm)
+
+    compile_article(
+        item=item, spec=spec, repo_root=repo, wiki_dir=wiki,
+        glossary_block="",
+        feedback_issues=[
+            ValidationIssue(
+                kind="stale",
+                description="Article says GET-only but code accepts all methods",
+                evidence="table shows GET; handler has no method check",
+            ),
+        ],
+    )
+    assert "stale" in captured_prompt["p"]
+    assert "GET-only" in captured_prompt["p"]
+
+
 def test_compile_article_appends_log_entry(tmp_path, monkeypatch):
     repo = tmp_path / "repo"; repo.mkdir()
     wiki = tmp_path / "wiki"; wiki.mkdir()

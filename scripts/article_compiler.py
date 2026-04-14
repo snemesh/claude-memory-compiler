@@ -44,11 +44,14 @@ def build_pass1_prompt(
     glossary_block: str,
     existing_body: str | None,
     trigger: str,
+    feedback_issues: list | None = None,
 ) -> str:
     """Construct the Pass 1 prompt for the LLM.
 
     `source_contents` maps path → file body. Each file is truncated to
     _PER_FILE_MAX_CHARS to keep the prompt bounded.
+    `feedback_issues` is an optional list of ValidationIssue objects
+    from a prior Pass 3 run that must be addressed in this compile.
     """
     mode = "update" if existing_body else "create"
     lines: list[str] = [
@@ -61,6 +64,15 @@ def build_pass1_prompt(
 
     if glossary_block:
         lines.append(glossary_block)
+        lines.append("")
+
+    if feedback_issues:
+        lines.append("## Feedback from previous validation pass (must be addressed)")
+        lines.append("")
+        for issue in feedback_issues:
+            lines.append(f"- **{issue.kind}**: {issue.description}")
+            if issue.evidence:
+                lines.append(f"  - evidence: {issue.evidence}")
         lines.append("")
 
     if existing_body is not None:
@@ -112,6 +124,7 @@ def compile_article(
     wiki_dir: Path,
     glossary_block: str,
     log_file: Path | None = None,
+    feedback_issues: list | None = None,
 ) -> CompileResult:
     """Run Pass 1 on a single article.
 
@@ -138,6 +151,7 @@ def compile_article(
         glossary_block=glossary_block,
         existing_body=existing_body,
         trigger=item.trigger,
+        feedback_issues=feedback_issues,
     )
 
     response = call_llm(
