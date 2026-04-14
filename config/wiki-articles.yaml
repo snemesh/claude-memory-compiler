@@ -1,0 +1,76 @@
+# Maps each wiki article slug to its priority tier and source-file globs.
+# Used by the queue builder to enumerate candidate articles and to seed
+# provenance frontmatter on first compile.
+
+articles:
+  # ── Models (P1) ──────────────────────────────────────────────────
+  - slug: fan-entity
+    priority: MODELS
+    sources:
+      - "services/user-profiles/internal/entity/**/*.go"
+      - "proto/user-profiles/**/*.proto"
+  - slug: club-entity
+    priority: MODELS
+    sources:
+      - "services/clubs/internal/entity/**/*.go"
+      - "proto/clubs/**/*.proto"
+  - slug: campaign
+    priority: MODELS
+    sources: ["services/content/internal/campaign/**/*.go"]
+  - slug: ad-task
+    priority: MODELS
+    sources: ["services/content/internal/adtask/**/*.go"]
+  - slug: geo-tiers
+    priority: MODELS
+    sources: ["services/content/internal/geo/**/*.go"]
+
+  # ── Services (P2) ────────────────────────────────────────────────
+  - slug: api-gateway
+    priority: SERVICES
+    sources: ["services/api-gateway/**/*.go"]
+  - slug: auth-service
+    priority: SERVICES
+    sources: ["services/auth-service/**/*.go"]
+  - slug: user-profiles
+    priority: SERVICES
+    sources: ["services/user-profiles/**/*.go"]
+  - slug: clubs
+    priority: SERVICES
+    sources: ["services/clubs/**/*.go"]
+  - slug: agents
+    priority: SERVICES
+    sources: ["services/agents/**/*.go"]
+  - slug: club-finance
+    priority: SERVICES
+    sources: ["services/club-finance/**/*.go"]
+  - slug: referrals
+    priority: SERVICES
+    sources: ["services/referrals/**/*.go"]
+
+  # ── Features (P3) ────────────────────────────────────────────────
+  - slug: fan-registration
+    priority: FEATURES
+    sources:
+      - "services/auth-service/internal/register/**/*.go"
+      - "services/user-profiles/internal/create/**/*.go"
+  - slug: club-self-registration
+    priority: FEATURES
+    sources:
+      - "services/clubs/internal/register/**/*.go"
+      - "services/clubs/internal/moderation/**/*.go"
+  - slug: wallet
+    priority: FEATURES
+    sources: ["services/*/internal/wallet/**/*.go"]
+
+  # ── Integrations (P4) ────────────────────────────────────────────
+  - slug: turnkey
+    priority: INTEGRATIONS
+    sources: ["services/*/internal/turnkey/**/*.go"]
+  - slug: atleta-network
+    priority: INTEGRATIONS
+    sources: ["services/*/internal/atleta/**/*.go"]
+
+  # ── Overview (P5) ────────────────────────────────────────────────
+  - slug: overview
+    priority: OVERVIEW
+    sources: ["**/*.go", "**/*.proto"]  # synthesis — reads everything relevant
