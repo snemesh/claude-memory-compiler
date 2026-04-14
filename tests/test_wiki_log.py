@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from wiki_log import LogEntry, format_entry
+from wiki_log import LogEntry, append_entry, format_entry
 
 
 def test_format_entry_minimal():
@@ -37,3 +37,49 @@ def test_format_entry_preserves_metadata_order():
     line = format_entry(entry)
     # Dict insertion order must be preserved
     assert "est_cost_usd=4.7 | budget_5h_pct=72.0" in line
+
+
+def test_append_entry_creates_file_with_header(tmp_path):
+    log_file = tmp_path / "log.md"
+    entry = LogEntry(
+        ts=datetime(2026, 4, 14, 22, 18, tzinfo=timezone.utc),
+        event="ingest",
+        summary="clubs",
+    )
+    append_entry(log_file, entry)
+
+    content = log_file.read_text(encoding="utf-8")
+    assert content.startswith("# Wiki Operations Log\n")
+    assert "## [2026-04-14 22:18] ingest | clubs" in content
+
+
+def test_append_entry_preserves_existing_content(tmp_path):
+    log_file = tmp_path / "log.md"
+    log_file.write_text("# Wiki Operations Log\n\n## [2026-04-10 10:00] ingest | foo\n",
+                        encoding="utf-8")
+
+    entry = LogEntry(
+        ts=datetime(2026, 4, 14, 22, 18, tzinfo=timezone.utc),
+        event="ingest",
+        summary="bar",
+    )
+    append_entry(log_file, entry)
+
+    content = log_file.read_text(encoding="utf-8")
+    # Both entries present, in order
+    assert content.index("foo") < content.index("bar")
+
+
+def test_append_entry_grep_parseable(tmp_path):
+    """Entries must be filterable with `grep '^## \\[' log.md`."""
+    log_file = tmp_path / "log.md"
+    for i in range(3):
+        append_entry(log_file, LogEntry(
+            ts=datetime(2026, 4, 14, 22, i, tzinfo=timezone.utc),
+            event="ingest",
+            summary=f"art{i}",
+        ))
+
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    entry_lines = [line for line in lines if line.startswith("## [")]
+    assert len(entry_lines) == 3

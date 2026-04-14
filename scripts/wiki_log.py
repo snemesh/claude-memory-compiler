@@ -28,3 +28,25 @@ def format_entry(entry: LogEntry) -> str:
     for key, value in entry.metadata.items():
         parts.append(f"{key}={value}")
     return " | ".join(parts)
+
+
+_LOG_HEADER = (
+    "# Wiki Operations Log\n\n"
+    "Append-only, chronological. Grep-parseable:\n"
+    "`grep '^## \\[' log.md | tail -20`\n\n"
+)
+
+
+def append_entry(log_file: Path, entry: LogEntry) -> None:
+    """Append a LogEntry to log.md, creating the file with a header if needed.
+
+    Atomic per-line append: open in append mode, write, close. No locking —
+    multiple writers would interleave by line but never corrupt. Acceptable
+    because we have a single sync process at a time.
+    """
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    if not log_file.exists():
+        log_file.write_text(_LOG_HEADER, encoding="utf-8")
+    line = format_entry(entry) + "\n"
+    with log_file.open("a", encoding="utf-8") as f:
+        f.write(line)
