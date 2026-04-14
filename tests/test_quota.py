@@ -159,12 +159,17 @@ def test_get_quota_uses_oauth_when_token_present(monkeypatch):
     assert snap.source == "oauth"
 
 
-def test_get_quota_returns_none_when_no_token(monkeypatch):
+def test_get_quota_returns_none_when_no_token_and_no_jsonl(tmp_path, monkeypatch):
     monkeypatch.setattr("quota.find_oauth_token", lambda: None)
-    assert get_quota() is None
+    assert get_quota(projects_dir=tmp_path / "nonexistent") is None
 
 
-def test_get_quota_returns_none_when_oauth_fails(monkeypatch):
+def test_get_quota_falls_back_to_jsonl_when_oauth_fails(tmp_path, monkeypatch):
     monkeypatch.setattr("quota.find_oauth_token", lambda: "sk-ant-oat01-TEST")
     monkeypatch.setattr("quota.fetch_oauth_quota", lambda tok: None)
-    assert get_quota() is None
+    # Empty jsonl dir → estimate returns 0%-used snap (not None)
+    tmp_path.mkdir(exist_ok=True)
+    snap = get_quota(projects_dir=tmp_path)
+    assert snap is not None
+    assert snap.source == "jsonl"
+    assert snap.five_hour_used_pct == 0.0

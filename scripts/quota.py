@@ -132,16 +132,42 @@ def sleep_seconds_until_reset(snap: QuotaSnapshot, safety_margin_s: int = 30) ->
     return int(delta.total_seconds()) + safety_margin_s
 
 
-def get_quota() -> QuotaSnapshot | None:
+_DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+
+def get_quota(
+    budget_5h_usd: float = 2500.0,
+    budget_7d_usd: float = 20000.0,
+    projects_dir: Path | None = None,
+) -> QuotaSnapshot | None:
     """High-level API: return best-effort quota snapshot.
 
-    Tries OAuth endpoint first; returns None on any failure.
-    (jsonl fallback is deferred to a follow-up task.)
+    Order:
+      1. oauth/usage endpoint (currently returns 401 — Anthropic upstream)
+      2. jsonl-based estimate from ~/.claude/projects/**/*.jsonl
+
+    Defaults are sized for Max-20x ($200/mo) peak usage: one active work
+    session typically registers ~$2000 of API-equivalent spend per 5h
+    window via jsonl (subscription ROI is ~10-100x list price). Tune
+    by running `quota.py` at end-of-day and comparing against /usage
+    in the Claude Code TUI. Lower values = more conservative throttling.
     """
     token = find_oauth_token()
-    if not token:
+    if token:
+        snap = fetch_oauth_quota(token)
+        if snap is not None:
+            return snap
+
+    # Fallback: local jsonl parsing
+    from jsonl_quota import estimate_quota_from_jsonl
+    proj_dir = projects_dir or _DEFAULT_PROJECTS_DIR
+    if not proj_dir.exists():
         return None
-    return fetch_oauth_quota(token)
+    return estimate_quota_from_jsonl(
+        projects_dir=proj_dir,
+        budget_5h_usd=budget_5h_usd,
+        budget_7d_usd=budget_7d_usd,
+    )
 
 
 def _main() -> int:
