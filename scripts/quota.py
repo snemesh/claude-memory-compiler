@@ -191,10 +191,15 @@ def _main() -> int:
         return 1
     print(f"source: {snap.source}")
     print(f"fetched_at: {snap.fetched_at.isoformat()}")
-    print(f"5h: {snap.five_hour_used_pct:.1f}% used "
+    print(f"5h rolling: {snap.five_hour_used_pct:.1f}% used "
           f"(resets {snap.five_hour_resets_at.isoformat()})")
-    print(f"7d: {snap.seven_day_used_pct:.1f}% used "
+    if snap.five_hour_session_used_pct is not None:
+        print(f"5h session: {snap.five_hour_session_used_pct:.1f}% used "
+              f"(matches TUI /usage)")
+    print(f"7d all:     {snap.seven_day_used_pct:.1f}% used "
           f"(resets {snap.seven_day_resets_at.isoformat()})")
+    if snap.seven_day_sonnet_used_pct is not None:
+        print(f"7d sonnet:  {snap.seven_day_sonnet_used_pct:.1f}% used")
     return 0
 
 
@@ -205,13 +210,26 @@ if __name__ == "__main__":
 
 @dataclass(frozen=True)
 class QuotaSnapshot:
-    """Point-in-time snapshot of subscription usage."""
+    """Point-in-time snapshot of subscription usage.
+
+    `five_hour_used_pct` is rolling-window based (last 5h from `fetched_at`).
+    `five_hour_session_used_pct` (optional, jsonl-only) is session-aware —
+    counts only activity since the last idle gap > 30 min, matching how
+    Claude Code's TUI `/usage` reports the session meter.
+
+    `seven_day_sonnet_used_pct` (optional, jsonl-only) splits Sonnet-only
+    traffic out from the pooled weekly meter. TUI shows this as a separate
+    counter; it hits first for Sonnet-heavy users even when the overall
+    weekly cap has headroom.
+    """
     five_hour_used_pct: float
     five_hour_resets_at: datetime
     seven_day_used_pct: float
     seven_day_resets_at: datetime
     fetched_at: datetime
-    source: str  # "oauth" | "jsonl-fallback"
+    source: str  # "oauth" | "jsonl"
+    five_hour_session_used_pct: float | None = None
+    seven_day_sonnet_used_pct: float | None = None
 
     @property
     def five_hour_remaining_pct(self) -> float:
@@ -220,3 +238,10 @@ class QuotaSnapshot:
     @property
     def seven_day_remaining_pct(self) -> float:
         return 100.0 - self.seven_day_used_pct
+
+    @property
+    def five_hour_effective_pct(self) -> float:
+        """Prefer session-based if available (matches TUI); else rolling."""
+        return (self.five_hour_session_used_pct
+                if self.five_hour_session_used_pct is not None
+                else self.five_hour_used_pct)

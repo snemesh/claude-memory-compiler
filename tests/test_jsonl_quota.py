@@ -206,3 +206,112 @@ def test_model_pricing_has_all_major_models():
     assert "claude-sonnet-4-6" in _PRICING
     assert "claude-opus-4-6" in _PRICING
     assert "claude-haiku-4-5" in _PRICING
+
+
+# ── Session-aware cost (#3 window alignment) ──────────────────────
+
+from jsonl_quota import estimate_session_cost_usd
+
+
+def test_estimate_session_cost_only_sums_current_session(tmp_path):
+    """Activity before an idle gap > idle_gap_s must not count."""
+    now = datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc)
+    jsonl = tmp_path / "s.jsonl"
+    # Turn 1: 4h30m ago (old session)
+    # ... 75-minute idle gap ...
+    # Turn 2: 3h15m ago (new session starts)
+    # Turn 3: 3h5m ago (10-minute gap — same session as turn 2)
+    jsonl.write_text(
+        _make_usage_line(now - timedelta(hours=4, minutes=30),
+                         input_t=1000, output_t=1000) + "\n" +
+        _make_usage_line(now - timedelta(hours=3, minutes=15),
+                         input_t=1000, output_t=1000) + "\n" +
+        _make_usage_line(now - timedelta(hours=3, minutes=5),
+                         input_t=1000, output_t=1000) + "\n"
+    )
+
+    total = estimate_session_cost_usd(
+        tmp_path, now=now, idle_gap_s=1800,
+    )
+    # Turns 2+3 count → 2 × sonnet ($3+$15 per MTok) × (1000+1000 tokens)
+    assert total == pytest.approx(2 * (1000 * 3e-6 + 1000 * 15e-6), rel=1e-3)
+
+
+def test_estimate_session_cost_single_session_no_gap(tmp_path):
+    now = datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc)
+    jsonl = tmp_path / "s.jsonl"
+    jsonl.write_text(
+        "\n".join(
+            _make_usage_line(now - timedelta(minutes=20 * i),
+                             input_t=1000, output_t=1000)
+            for i in range(3, 0, -1)
+        )
+    )
+    total = estimate_session_cost_usd(tmp_path, now=now, idle_gap_s=1800)
+    # No 30-min gap anywhere → all 3 turns count
+    assert total == pytest.approx(3 * (1000 * 3e-6 + 1000 * 15e-6), rel=1e-3)
+
+
+def test_estimate_session_cost_empty_returns_zero(tmp_path):
+    now = datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc)
+    assert estimate_session_cost_usd(tmp_path, now=now) == 0.0
+
+
+# ── Model filter (#1 Sonnet split) ────────────────────────────────
+
+from jsonl_quota import sonnet_only
+
+
+def test_sonnet_only_filter():
+    assert sonnet_only("claude-sonnet-4-6") is True
+    assert sonnet_only("claude-sonnet-4-6[1m]") is True
+    assert sonnet_only("claude-opus-4-6") is False
+    assert sonnet_only("claude-haiku-4-5") is False
+
+
+def test_estimate_window_cost_with_model_filter(tmp_path):
+    now = datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc)
+    jsonl = tmp_path / "s.jsonl"
+    jsonl.write_text(
+        _make_usage_line(now - timedelta(hours=1),
+                         model="claude-sonnet-4-6",
+                         input_t=1_000_000, output_t=0) + "\n" +
+        _make_usage_line(now - timedelta(hours=1),
+                         model="claude-opus-4-6",
+                         input_t=1_000_000, output_t=0) + "\n"
+    )
+    # Sonnet: 1M * $3 = $3
+    # Opus: 1M * $15 = $15
+    # All: $18
+    from jsonl_quota import estimate_window_cost_usd
+    total_all = estimate_window_cost_usd(tmp_path, timedelta(hours=5), now)
+    total_sonnet = estimate_window_cost_usd(
+        tmp_path, timedelta(hours=5), now, model_filter=sonnet_only,
+    )
+    assert total_all == pytest.approx(18.0, rel=1e-3)
+    assert total_sonnet == pytest.approx(3.0, rel=1e-3)
+
+
+# ── QuotaSnapshot enrichment ──────────────────────────────────────
+
+def test_estimate_quota_from_jsonl_populates_session_and_sonnet_fields(tmp_path):
+    now = datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc)
+    jsonl = tmp_path / "s.jsonl"
+    jsonl.write_text(
+        _make_usage_line(now - timedelta(minutes=10),
+                         model="claude-sonnet-4-6",
+                         input_t=100_000, output_t=100_000) + "\n"
+    )
+    snap = estimate_quota_from_jsonl(
+        projects_dir=tmp_path,
+        budget_5h_usd=10.0,
+        budget_7d_usd=140.0,
+        now=now,
+    )
+    # $1.80 spent, both session and rolling windows cover this
+    assert snap.five_hour_used_pct == pytest.approx(18.0, rel=1e-2)
+    assert snap.five_hour_session_used_pct == pytest.approx(18.0, rel=1e-2)
+    # All traffic is Sonnet → sonnet % matches all-models %
+    assert snap.seven_day_sonnet_used_pct == pytest.approx(
+        snap.seven_day_used_pct, rel=1e-2,
+    )

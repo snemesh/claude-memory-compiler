@@ -15,9 +15,17 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from quota import QuotaSnapshot
+
+
+ModelFilter = Callable[[str], bool]
+
+
+def sonnet_only(model: str) -> bool:
+    """Model filter selecting Sonnet variants (including beta suffixes)."""
+    return model.startswith("claude-sonnet-")
 
 
 @dataclass(frozen=True)
@@ -132,10 +140,13 @@ def estimate_window_cost_usd(
     projects_dir: Path,
     window: timedelta,
     now: datetime,
+    model_filter: ModelFilter | None = None,
 ) -> float:
     """Sum $cost across all turns in [now-window, now] across every jsonl file.
 
     Ignores malformed lines and files. Returns 0.0 if projects_dir is missing.
+    If `model_filter` is given, only turns whose model satisfies the
+    predicate are counted (e.g. `sonnet_only` for the Sonnet weekly sub-cap).
     """
     if not projects_dir.exists():
         return 0.0
@@ -153,7 +164,65 @@ def estimate_window_cost_usd(
             model, usage, ts = parsed
             if ts < cutoff or ts > now:
                 continue
+            if model_filter is not None and not model_filter(model):
+                continue
             total += compute_turn_cost(model, usage)
+    return total
+
+
+def _collect_turns(
+    projects_dir: Path,
+    now: datetime,
+    max_lookback: timedelta = timedelta(days=7),
+) -> list[tuple[datetime, str, dict[str, Any]]]:
+    """Gather all (ts, model, usage) turns within lookback, sorted by ts."""
+    if not projects_dir.exists():
+        return []
+    cutoff = now - max_lookback
+    turns: list[tuple[datetime, str, dict[str, Any]]] = []
+    for jsonl in projects_dir.rglob("*.jsonl"):
+        try:
+            content = jsonl.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in content.splitlines():
+            parsed = parse_usage_line(line)
+            if parsed is None:
+                continue
+            model, usage, ts = parsed
+            if ts < cutoff or ts > now:
+                continue
+            turns.append((ts, model, usage))
+    turns.sort(key=lambda t: t[0])
+    return turns
+
+
+def estimate_session_cost_usd(
+    projects_dir: Path,
+    now: datetime,
+    idle_gap_s: int = 1800,
+) -> float:
+    """Session-aware cost: sum only turns after the most recent idle gap.
+
+    A session boundary is any idle gap >= idle_gap_s between consecutive
+    turns. This mirrors how Claude Code's TUI `/usage` reports the 5h
+    meter — it counts since the current session started, not a rolling
+    5 hours from now.
+    """
+    turns = _collect_turns(projects_dir, now)
+    if not turns:
+        return 0.0
+
+    gap = timedelta(seconds=idle_gap_s)
+    # Find the index of the last idle boundary; session = turns from there onward.
+    session_start_idx = 0
+    for i in range(1, len(turns)):
+        if turns[i][0] - turns[i - 1][0] >= gap:
+            session_start_idx = i
+
+    total = 0.0
+    for _, model, usage in turns[session_start_idx:]:
+        total += compute_turn_cost(model, usage)
     return total
 
 
@@ -165,24 +234,29 @@ def estimate_quota_from_jsonl(
 ) -> QuotaSnapshot:
     """Build a QuotaSnapshot from jsonl aggregation.
 
-    The resets_at fields are approximate: we cannot know when Anthropic's
-    rolling window started, so we report `now + window` as a conservative
-    upper-bound (actual reset happens on or before that time).
+    Populates both the rolling 5h window (back-compat) and the session-aware
+    5h meter (matches TUI) plus a Sonnet-only weekly sub-cap reading.
     """
     if now is None:
         now = datetime.now(tz=timezone.utc)
 
     spent_5h = estimate_window_cost_usd(projects_dir, timedelta(hours=5), now)
     spent_7d = estimate_window_cost_usd(projects_dir, timedelta(days=7), now)
+    spent_session = estimate_session_cost_usd(projects_dir, now)
+    spent_7d_sonnet = estimate_window_cost_usd(
+        projects_dir, timedelta(days=7), now, model_filter=sonnet_only,
+    )
 
-    pct_5h = min(100.0, 100.0 * spent_5h / budget_5h_usd) if budget_5h_usd > 0 else 0.0
-    pct_7d = min(100.0, 100.0 * spent_7d / budget_7d_usd) if budget_7d_usd > 0 else 0.0
+    def _pct(spent: float, budget: float) -> float:
+        return min(100.0, 100.0 * spent / budget) if budget > 0 else 0.0
 
     return QuotaSnapshot(
-        five_hour_used_pct=pct_5h,
+        five_hour_used_pct=_pct(spent_5h, budget_5h_usd),
         five_hour_resets_at=now + timedelta(hours=5),
-        seven_day_used_pct=pct_7d,
+        seven_day_used_pct=_pct(spent_7d, budget_7d_usd),
         seven_day_resets_at=now + timedelta(days=7),
         fetched_at=now,
         source="jsonl",
+        five_hour_session_used_pct=_pct(spent_session, budget_5h_usd),
+        seven_day_sonnet_used_pct=_pct(spent_7d_sonnet, budget_7d_usd),
     )
