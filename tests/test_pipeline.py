@@ -141,3 +141,73 @@ def test_run_pipeline_empty_queue_returns_zero_report(repo_and_wiki, manifest):
     )
     assert report.articles_compiled == 0
     assert report.total_cost_usd == 0.0
+
+
+def test_run_pipeline_requeues_articles_with_pass3_issues(
+    repo_and_wiki, manifest, monkeypatch
+):
+    """When Pass 3 finds issues, Pass 1 is invoked again with feedback."""
+    repo, wiki = repo_and_wiki
+    compile_calls: list[str] = []
+    validate_call_count = [0]
+
+    def fake_llm(prompt, model, cwd, max_turns=30):
+        if "Validate" in prompt:
+            validate_call_count[0] += 1
+            if validate_call_count[0] == 1:
+                return LLMResponse(
+                    text='```json\n[{"kind": "stale", '
+                         '"description": "docs claim GET-only", '
+                         '"evidence": "table + handler"}]\n```',
+                    cost_usd=0.002, model="claude-haiku-4-5",
+                )
+            return LLMResponse(text="```json\n[]\n```", cost_usd=0.002,
+                               model="claude-haiku-4-5")
+        slug = _slug_from_prompt(prompt)
+        compile_calls.append(prompt)
+        (cwd / f"{slug}.md").write_text(f"# {slug}\n\nBody.\n")
+        return LLMResponse(text="ok", cost_usd=0.05, model="claude-sonnet-4-6")
+
+    monkeypatch.setattr("article_compiler.call_llm", fake_llm)
+    monkeypatch.setattr("validator.call_llm", fake_llm)
+
+    report = run_pipeline(
+        queue=[QueueItem("clubs", ArticlePriority.SERVICES, "manual")],
+        manifest=manifest, ripple_rules=[],
+        repo_root=repo, wiki_dir=wiki,
+        enable_feedback_loop=True,
+    )
+    assert len(compile_calls) == 2
+    assert "docs claim GET-only" in compile_calls[1]
+    assert report.total_cost_usd == pytest.approx(0.05 * 2 + 0.002 * 2, rel=1e-3)
+
+
+def test_run_pipeline_feedback_loop_disabled_by_default(
+    repo_and_wiki, manifest, monkeypatch
+):
+    """Without enable_feedback_loop, Pass 3 issues are logged but no re-compile."""
+    repo, wiki = repo_and_wiki
+    compile_calls: list[str] = []
+
+    def fake_llm(prompt, model, cwd, max_turns=30):
+        if "Validate" in prompt:
+            return LLMResponse(
+                text='```json\n[{"kind": "stale", '
+                     '"description": "X", "evidence": "Y"}]\n```',
+                cost_usd=0.002, model="claude-haiku-4-5",
+            )
+        slug = _slug_from_prompt(prompt)
+        compile_calls.append(prompt)
+        (cwd / f"{slug}.md").write_text(f"# {slug}\n\nBody.\n")
+        return LLMResponse(text="ok", cost_usd=0.05, model="claude-sonnet-4-6")
+
+    monkeypatch.setattr("article_compiler.call_llm", fake_llm)
+    monkeypatch.setattr("validator.call_llm", fake_llm)
+
+    report = run_pipeline(
+        queue=[QueueItem("clubs", ArticlePriority.SERVICES, "manual")],
+        manifest=manifest, ripple_rules=[],
+        repo_root=repo, wiki_dir=wiki,
+    )
+    assert len(compile_calls) == 1
+    assert len(report.validation_results[0].issues) == 1

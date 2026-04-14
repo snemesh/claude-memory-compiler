@@ -60,8 +60,13 @@ def run_pipeline(
     repo_root: Path,
     wiki_dir: Path,
     log_file: Path | None = None,
+    enable_feedback_loop: bool = False,
 ) -> PipelineReport:
-    """Run the full three-pass pipeline over a compile queue."""
+    """Run the full three-pass pipeline over a compile queue.
+
+    When enable_feedback_loop=True, any article whose Pass 3 validation
+    finds issues is re-compiled once with the issues inlined as feedback.
+    """
     if not queue:
         return PipelineReport(
             articles_compiled=0,
@@ -122,6 +127,37 @@ def run_pipeline(
                 summary=f"validate {item.slug}: {len(result.issues)} issues",
                 metadata={"kinds": ",".join(i.kind for i in result.issues)},
             ))
+
+    # ── Feedback re-queue (E4) ────────────────────────────────────
+    if enable_feedback_loop:
+        for validation in list(validations):
+            if not validation.issues:
+                continue
+            item = next((q for q in queue if q.slug == validation.slug), None)
+            if item is None:
+                continue
+            spec = spec_by_slug.get(item.slug)
+            if spec is None:
+                continue
+
+            recompile = compile_article(
+                item=item, spec=spec,
+                repo_root=repo_root, wiki_dir=wiki_dir,
+                glossary_block=glossary, log_file=log_file,
+                feedback_issues=validation.issues,
+            )
+            total_cost += recompile.cost_usd
+
+            re_val = validate_article(
+                article_slug=item.slug,
+                wiki_dir=wiki_dir,
+                sibling_slugs=_siblings_for(item.slug, manifest, ripple_rules),
+            )
+            total_cost += re_val.cost_usd
+            for i, v in enumerate(validations):
+                if v.slug == re_val.slug:
+                    validations[i] = re_val
+                    break
 
     return PipelineReport(
         articles_compiled=compiled,
