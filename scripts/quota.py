@@ -6,8 +6,27 @@ with model pricing table.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+_CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+
+
+def find_oauth_token() -> str | None:
+    """Locate the Claude Code OAuth access token.
+
+    Searches ~/.claude/.credentials.json for claudeAiOauth.accessToken.
+    Returns None if the file is absent or the token is missing.
+    """
+    if not _CREDENTIALS_PATH.exists():
+        return None
+    try:
+        data = json.loads(_CREDENTIALS_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data.get("claudeAiOauth", {}).get("accessToken")
 
 
 @dataclass(frozen=True)
