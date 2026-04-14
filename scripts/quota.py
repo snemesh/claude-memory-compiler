@@ -136,8 +136,8 @@ _DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 
 def get_quota(
-    budget_5h_usd: float = 2500.0,
-    budget_7d_usd: float = 20000.0,
+    budget_5h_usd: float = 4800.0,
+    budget_7d_usd: float = 95000.0,
     projects_dir: Path | None = None,
 ) -> QuotaSnapshot | None:
     """High-level API: return best-effort quota snapshot.
@@ -146,11 +146,24 @@ def get_quota(
       1. oauth/usage endpoint (currently returns 401 — Anthropic upstream)
       2. jsonl-based estimate from ~/.claude/projects/**/*.jsonl
 
-    Defaults are sized for Max-20x ($200/mo) peak usage: one active work
-    session typically registers ~$2000 of API-equivalent spend per 5h
-    window via jsonl (subscription ROI is ~10-100x list price). Tune
-    by running `quota.py` at end-of-day and comparing against /usage
-    in the Claude Code TUI. Lower values = more conservative throttling.
+    Budget calibration (Max-20x, 2026-04-14, empirical):
+      TUI 5h=45%  ↔ jsonl last-5h=$2147  →  budget_5h_usd ≈ 2147/0.45 = $4770
+      TUI 7d=21%  ↔ jsonl last-7d=$19716 →  budget_7d_usd ≈ 19716/0.21 = $93885
+
+    Known systematic biases in this estimate:
+
+    1. Window alignment: TUI counts % since session-start (not a true
+       rolling window). Our estimator counts rolling last-N-hours.
+       This over-reports 5h% after long breaks.
+
+    2. No model-cap split: TUI weekly shows "All models" AND a separate
+       "Sonnet only" sub-cap. We lump everything into one budget.
+
+    3. Peak-hour throttling (Mar 2026): TUI's 5h quota is reduced during
+       5-11am PT. Our estimate doesn't know about this.
+
+    Lower values = more conservative throttling. Run `quota.py` after a
+    full day of work, compare to /usage in TUI, retune these defaults.
     """
     token = find_oauth_token()
     if token:
