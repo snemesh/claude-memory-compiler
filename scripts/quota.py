@@ -72,6 +72,39 @@ def fetch_oauth_quota(token: str) -> QuotaSnapshot | None:
 
 
 @dataclass(frozen=True)
+class BudgetThresholds:
+    """Configurable stop-points for sync-loop.
+
+    Values are percentages 0-100. Defaults leave conservative headroom
+    for interactive use outside the sync process.
+    """
+    five_hour_stop_pct: float = 85.0
+    seven_day_stop_pct: float = 90.0
+
+
+def should_pause(snap: QuotaSnapshot, thresholds: BudgetThresholds) -> bool:
+    """True if sync-loop must stop before next chunk."""
+    if snap.five_hour_used_pct >= thresholds.five_hour_stop_pct:
+        return True
+    if snap.seven_day_used_pct >= thresholds.seven_day_stop_pct:
+        return True
+    return False
+
+
+def sleep_seconds_until_reset(snap: QuotaSnapshot, safety_margin_s: int = 30) -> int:
+    """Seconds from snapshot time until the nearest blocking window resets.
+
+    Picks whichever of five_hour / seven_day is currently over its threshold;
+    if both, returns the earlier reset. Adds safety_margin_s so we wake up
+    slightly after the reset, not on the boundary.
+    """
+    candidates = [snap.five_hour_resets_at, snap.seven_day_resets_at]
+    earliest = min(candidates)
+    delta = earliest - snap.fetched_at
+    return int(delta.total_seconds()) + safety_margin_s
+
+
+@dataclass(frozen=True)
 class QuotaSnapshot:
     """Point-in-time snapshot of subscription usage."""
     five_hour_used_pct: float

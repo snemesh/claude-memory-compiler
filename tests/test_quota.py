@@ -5,7 +5,14 @@ import pytest
 
 from unittest.mock import MagicMock, patch
 
-from quota import QuotaSnapshot, fetch_oauth_quota, find_oauth_token
+from quota import (
+    BudgetThresholds,
+    QuotaSnapshot,
+    fetch_oauth_quota,
+    find_oauth_token,
+    should_pause,
+    sleep_seconds_until_reset,
+)
 
 
 def test_quota_snapshot_construction():
@@ -91,3 +98,43 @@ def test_fetch_oauth_quota_returns_none_on_network_error():
     with patch("quota.requests.get", side_effect=requests.ConnectionError("boom")):
         snap = fetch_oauth_quota("sk-ant-oat01-TEST")
     assert snap is None
+
+
+from datetime import timedelta
+
+
+def make_snap(five_pct=50.0, seven_pct=30.0, resets_in_h=2.0):
+    now = datetime(2026, 4, 14, 3, 15, tzinfo=timezone.utc)
+    return QuotaSnapshot(
+        five_hour_used_pct=five_pct,
+        five_hour_resets_at=now + timedelta(hours=resets_in_h),
+        seven_day_used_pct=seven_pct,
+        seven_day_resets_at=now + timedelta(days=3),
+        fetched_at=now,
+        source="oauth",
+    )
+
+
+def test_should_pause_false_under_threshold():
+    snap = make_snap(five_pct=70.0, seven_pct=50.0)
+    t = BudgetThresholds(five_hour_stop_pct=85.0, seven_day_stop_pct=90.0)
+    assert should_pause(snap, t) is False
+
+
+def test_should_pause_true_on_five_hour_exhaust():
+    snap = make_snap(five_pct=86.0)
+    t = BudgetThresholds(five_hour_stop_pct=85.0, seven_day_stop_pct=90.0)
+    assert should_pause(snap, t) is True
+
+
+def test_should_pause_true_on_seven_day_exhaust():
+    snap = make_snap(five_pct=40.0, seven_pct=91.0)
+    t = BudgetThresholds(five_hour_stop_pct=85.0, seven_day_stop_pct=90.0)
+    assert should_pause(snap, t) is True
+
+
+def test_sleep_seconds_until_reset_five_hour():
+    snap = make_snap(five_pct=95.0, resets_in_h=2.0)
+    # 2 hours + 30s safety margin
+    secs = sleep_seconds_until_reset(snap, safety_margin_s=30)
+    assert 7225 <= secs <= 7235
