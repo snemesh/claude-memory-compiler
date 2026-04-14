@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from article_compiler import CompileResult
 from articles_manifest import ArticleSpec, load_manifest
 from pipeline import PipelineReport, run_pipeline
 from queue_builder import QueueItem, build_queue
@@ -26,6 +27,7 @@ from sync_state import (
     QueueStatus,
     SyncState,
     SyncStatus,
+    load_state,
     save_state,
 )
 
@@ -92,6 +94,41 @@ def _initial_state(queue: list[QueueItem]) -> SyncState:
     )
 
 
+def _on_chunk_done(state_path: Path, slug: str, result: CompileResult) -> None:
+    """Per-chunk callback: flip entry to DONE, record cost, persist atomically.
+
+    Called after every Pass 1 compile. This is what makes `compile-status`
+    show live progress during a running manual sync.
+    """
+    state = load_state(state_path)
+    if state is None:
+        return
+    new_queue = []
+    for entry in state.queue:
+        if entry.slug == slug:
+            new_queue.append(QueueEntry(
+                slug=entry.slug,
+                priority_tier=entry.priority_tier,
+                status=QueueStatus.DONE,
+                cost_usd=result.cost_usd,
+                commit_sha=entry.commit_sha,
+                started_at=entry.started_at,
+            ))
+        else:
+            new_queue.append(entry)
+    updated = SyncState(
+        status=state.status,
+        started_at=state.started_at,
+        current_chunk=None,
+        sleep_until=state.sleep_until,
+        queue=new_queue,
+        total_cost_usd=state.total_cost_usd + result.cost_usd,
+        budget_used_5h_pct=state.budget_used_5h_pct,
+        budget_used_7d_pct=state.budget_used_7d_pct,
+    )
+    save_state(state_path, updated)
+
+
 def run_manual_sync(
     queue: list[QueueItem],
     manifest: list[ArticleSpec],
@@ -101,9 +138,16 @@ def run_manual_sync(
     log_file: Path | None,
     state_path: Path,
 ) -> PipelineReport:
-    """Run the pipeline synchronously and track state on disk."""
+    """Run the pipeline synchronously and track state on disk.
+
+    State file is updated live per Pass 1 chunk so `compile-status` and
+    `statusline` see progress in real time during a running sync.
+    """
     state = _initial_state(queue)
     save_state(state_path, state)
+
+    def progress(slug: str, result: CompileResult) -> None:
+        _on_chunk_done(state_path, slug, result)
 
     try:
         report = run_pipeline(
@@ -113,41 +157,34 @@ def run_manual_sync(
             repo_root=repo_root,
             wiki_dir=wiki_dir,
             log_file=log_file,
+            on_pass1_chunk=progress,
         )
     except Exception:
+        state_now = load_state(state_path) or state
         final = SyncState(
             status=SyncStatus.FAILED,
-            started_at=state.started_at,
-            current_chunk=state.current_chunk,
+            started_at=state_now.started_at,
+            current_chunk=None,
             sleep_until=None,
-            queue=state.queue,
-            total_cost_usd=state.total_cost_usd,
-            budget_used_5h_pct=state.budget_used_5h_pct,
-            budget_used_7d_pct=state.budget_used_7d_pct,
+            queue=state_now.queue,
+            total_cost_usd=state_now.total_cost_usd,
+            budget_used_5h_pct=state_now.budget_used_5h_pct,
+            budget_used_7d_pct=state_now.budget_used_7d_pct,
         )
         save_state(state_path, final)
         raise
 
-    done_queue = [
-        QueueEntry(
-            slug=q.slug,
-            priority_tier=q.priority_tier,
-            status=QueueStatus.DONE,
-            cost_usd=None,
-            commit_sha=None,
-            started_at=None,
-        )
-        for q in state.queue
-    ]
+    # Final: DONE status, reconcile total from report, keep per-entry cost.
+    state_now = load_state(state_path) or state
     final = SyncState(
         status=SyncStatus.DONE,
-        started_at=state.started_at,
+        started_at=state_now.started_at,
         current_chunk=None,
         sleep_until=None,
-        queue=done_queue,
+        queue=state_now.queue,
         total_cost_usd=report.total_cost_usd,
-        budget_used_5h_pct=0.0,
-        budget_used_7d_pct=0.0,
+        budget_used_5h_pct=state_now.budget_used_5h_pct,
+        budget_used_7d_pct=state_now.budget_used_7d_pct,
     )
     save_state(state_path, final)
     return report

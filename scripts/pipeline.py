@@ -14,8 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
-from article_compiler import compile_article
+from article_compiler import CompileResult, compile_article
 from articles_manifest import ArticleSpec
 from crosslink import run_pass2
 from glossary import build_glossary_block
@@ -61,11 +62,16 @@ def run_pipeline(
     wiki_dir: Path,
     log_file: Path | None = None,
     enable_feedback_loop: bool = False,
+    on_pass1_chunk: Callable[[str, CompileResult], None] | None = None,
 ) -> PipelineReport:
     """Run the full three-pass pipeline over a compile queue.
 
     When enable_feedback_loop=True, any article whose Pass 3 validation
     finds issues is re-compiled once with the issues inlined as feedback.
+
+    on_pass1_chunk fires after every Pass 1 compile (including re-compiles
+    in the feedback loop) with (slug, CompileResult). Orchestrators use
+    this hook to update persisted state atomically between chunks.
     """
     if not queue:
         return PipelineReport(
@@ -98,6 +104,8 @@ def run_pipeline(
         )
         total_cost += result.cost_usd
         compiled += 1
+        if on_pass1_chunk is not None:
+            on_pass1_chunk(item.slug, result)
 
     # ── Pass 2 ────────────────────────────────────────────────────
     pass2 = run_pass2(wiki_dir=wiki_dir, known_slugs=known_slugs)
@@ -147,6 +155,8 @@ def run_pipeline(
                 feedback_issues=validation.issues,
             )
             total_cost += recompile.cost_usd
+            if on_pass1_chunk is not None:
+                on_pass1_chunk(item.slug, recompile)
 
             re_val = validate_article(
                 article_slug=item.slug,
