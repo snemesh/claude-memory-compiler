@@ -10,6 +10,7 @@ from quota import (
     QuotaSnapshot,
     fetch_oauth_quota,
     find_oauth_token,
+    get_quota,
     should_pause,
     sleep_seconds_until_reset,
 )
@@ -138,3 +139,24 @@ def test_sleep_seconds_until_reset_five_hour():
     # 2 hours + 30s safety margin
     secs = sleep_seconds_until_reset(snap, safety_margin_s=30)
     assert 7225 <= secs <= 7235
+
+
+def test_get_quota_uses_oauth_when_token_present(monkeypatch):
+    fake_snap = make_snap()
+    monkeypatch.setattr("quota.find_oauth_token", lambda: "sk-ant-oat01-TEST")
+    monkeypatch.setattr("quota.fetch_oauth_quota", lambda tok: fake_snap)
+
+    snap = get_quota()
+    assert snap is fake_snap
+    assert snap.source == "oauth"
+
+
+def test_get_quota_returns_none_when_no_token(monkeypatch):
+    monkeypatch.setattr("quota.find_oauth_token", lambda: None)
+    assert get_quota() is None
+
+
+def test_get_quota_returns_none_when_oauth_fails(monkeypatch):
+    monkeypatch.setattr("quota.find_oauth_token", lambda: "sk-ant-oat01-TEST")
+    monkeypatch.setattr("quota.fetch_oauth_quota", lambda tok: None)
+    assert get_quota() is None

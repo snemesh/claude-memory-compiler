@@ -104,6 +104,38 @@ def sleep_seconds_until_reset(snap: QuotaSnapshot, safety_margin_s: int = 30) ->
     return int(delta.total_seconds()) + safety_margin_s
 
 
+def get_quota() -> QuotaSnapshot | None:
+    """High-level API: return best-effort quota snapshot.
+
+    Tries OAuth endpoint first; returns None on any failure.
+    (jsonl fallback is deferred to a follow-up task.)
+    """
+    token = find_oauth_token()
+    if not token:
+        return None
+    return fetch_oauth_quota(token)
+
+
+def _main() -> int:
+    """CLI entrypoint: `uv run python scripts/quota.py`"""
+    snap = get_quota()
+    if snap is None:
+        print("quota: unavailable (no OAuth token or endpoint error)")
+        return 1
+    print(f"source: {snap.source}")
+    print(f"fetched_at: {snap.fetched_at.isoformat()}")
+    print(f"5h: {snap.five_hour_used_pct:.1f}% used "
+          f"(resets {snap.five_hour_resets_at.isoformat()})")
+    print(f"7d: {snap.seven_day_used_pct:.1f}% used "
+          f"(resets {snap.seven_day_resets_at.isoformat()})")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main())
+
+
 @dataclass(frozen=True)
 class QuotaSnapshot:
     """Point-in-time snapshot of subscription usage."""
