@@ -1,0 +1,18 @@
+# Non-obvious cross-service dependencies.
+# Auto-seed rationale: patterns below reflect proto-import edges and
+# api-gateway routing known at spec time (2026-04-14).
+# Human-editable — add hidden deps (shared DB tables, Kafka topics, events).
+
+patterns:
+  - match: "proto/clubs/**"
+    revalidate: [api-gateway, club-finance, referrals, club-self-registration]
+  - match: "proto/auth/**"
+    revalidate: [api-gateway, fan-registration]
+  - match: "proto/referrals/**"
+    revalidate: [api-gateway, agents, club-finance]
+  - match: "services/auth-service/internal/jwt/**"
+    revalidate: [fan-registration, club-self-registration, wallet]
+  - match: "services/referrals/internal/event/**"
+    revalidate: [agents, club-finance]
+  - match: "services/api-gateway/internal/service_v2/**"
+    revalidate: [api-gateway, overview]
