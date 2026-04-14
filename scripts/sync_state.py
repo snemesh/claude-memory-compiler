@@ -118,3 +118,22 @@ def load_state(path: Path) -> SyncState | None:
         budget_used_5h_pct=float(data.get("budget_used_5h_pct", 0.0)),
         budget_used_7d_pct=float(data.get("budget_used_7d_pct", 0.0)),
     )
+
+
+def set_kill_flag(path: Path) -> None:
+    """Create a kill-flag marker file so the sync loop exits on next check."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("stop\n", encoding="utf-8")
+
+
+def clear_kill_flag(path: Path) -> None:
+    """Remove the kill-flag marker if present (no-op otherwise)."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def read_kill_flag(path: Path) -> bool:
+    """True if a kill flag exists at path."""
+    return path.exists()

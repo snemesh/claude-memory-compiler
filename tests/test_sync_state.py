@@ -54,3 +54,21 @@ def test_save_state_atomic_via_tmp_rename(tmp_path):
     save_state(path, state)
     assert not (tmp_path / "sync-state.json.tmp").exists()
     assert path.exists()
+
+
+from sync_state import clear_kill_flag, read_kill_flag, set_kill_flag
+
+
+def test_kill_flag_roundtrip(tmp_path):
+    flag_path = tmp_path / "sync-state.kill"
+    assert read_kill_flag(flag_path) is False
+    set_kill_flag(flag_path)
+    assert read_kill_flag(flag_path) is True
+    clear_kill_flag(flag_path)
+    assert read_kill_flag(flag_path) is False
+
+
+def test_clear_kill_flag_is_idempotent(tmp_path):
+    flag_path = tmp_path / "sync-state.kill"
+    clear_kill_flag(flag_path)
+    assert read_kill_flag(flag_path) is False
