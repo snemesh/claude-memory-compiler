@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from wiki_log import LogEntry, append_entry, format_entry
+from wiki_log import LogEntry, append_entry, format_entry, tail_entries
 
 
 def test_format_entry_minimal():
@@ -83,3 +83,35 @@ def test_append_entry_grep_parseable(tmp_path):
     lines = log_file.read_text(encoding="utf-8").splitlines()
     entry_lines = [line for line in lines if line.startswith("## [")]
     assert len(entry_lines) == 3
+
+
+def test_tail_entries_returns_last_n(tmp_path):
+    log_file = tmp_path / "log.md"
+    for i in range(5):
+        append_entry(log_file, LogEntry(
+            ts=datetime(2026, 4, 14, 22, i, tzinfo=timezone.utc),
+            event="ingest",
+            summary=f"art{i}",
+        ))
+
+    entries = tail_entries(log_file, n=3)
+    assert len(entries) == 3
+    assert [e.summary for e in entries] == ["art2", "art3", "art4"]
+
+
+def test_tail_entries_parses_metadata(tmp_path):
+    log_file = tmp_path / "log.md"
+    append_entry(log_file, LogEntry(
+        ts=datetime(2026, 4, 14, 22, 18, tzinfo=timezone.utc),
+        event="ingest",
+        summary="clubs",
+        metadata={"cost_usd": 0.12, "commit": "a7f2c9"},
+    ))
+
+    entries = tail_entries(log_file, n=5)
+    assert len(entries) == 1
+    assert entries[0].metadata == {"cost_usd": "0.12", "commit": "a7f2c9"}
+
+
+def test_tail_entries_missing_file_returns_empty(tmp_path):
+    assert tail_entries(tmp_path / "nonexistent.md", n=10) == []

@@ -50,3 +50,40 @@ def append_entry(log_file: Path, entry: LogEntry) -> None:
     line = format_entry(entry) + "\n"
     with log_file.open("a", encoding="utf-8") as f:
         f.write(line)
+
+
+import re
+from datetime import timezone
+
+_ENTRY_RE = re.compile(
+    r"^## \[(?P<date>\d{4}-\d{2}-\d{2}) (?P<time>\d{2}:\d{2})\] "
+    r"(?P<event>[\w-]+) \| (?P<rest>.*)$"
+)
+
+
+def _parse_entry(line: str) -> LogEntry | None:
+    """Parse a single log line back into a LogEntry. None if malformed."""
+    match = _ENTRY_RE.match(line.rstrip())
+    if not match:
+        return None
+    ts = datetime.strptime(
+        f"{match['date']} {match['time']}", "%Y-%m-%d %H:%M"
+    ).replace(tzinfo=timezone.utc)
+
+    segments = match["rest"].split(" | ")
+    summary = segments[0]
+    metadata: dict[str, Any] = {}
+    for seg in segments[1:]:
+        if "=" in seg:
+            k, _, v = seg.partition("=")
+            metadata[k.strip()] = v.strip()
+    return LogEntry(ts=ts, event=match["event"], summary=summary, metadata=metadata)
+
+
+def tail_entries(log_file: Path, n: int) -> list[LogEntry]:
+    """Return the last N entries parsed from log.md. Empty list if no file."""
+    if not log_file.exists():
+        return []
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    parsed = [e for line in lines if (e := _parse_entry(line)) is not None]
+    return parsed[-n:] if n > 0 else parsed
