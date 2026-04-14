@@ -144,3 +144,20 @@ def test_build_queue_item_carries_trigger(
         trigger="commit:abc123",
     )
     assert queue[0].trigger == "commit:abc123"
+
+
+def test_build_queue_finds_first_compile_via_manifest_globs(tmp_path, manifest):
+    """Article has no provenance yet → must still be enqueued when its
+    manifest sources glob matches a changed file (first-compile case)."""
+    empty_wiki = tmp_path / "empty-wiki"
+    empty_wiki.mkdir()
+
+    queue = build_queue(
+        changed_files=["services/club-finance/main.go"],
+        manifest=manifest,
+        ripple_rules=[],
+        wiki_dir=empty_wiki,
+        trigger="manual",
+    )
+    slugs = [item.slug for item in queue]
+    assert "club-finance" in slugs

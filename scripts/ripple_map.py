@@ -38,12 +38,24 @@ def load_ripple_map(path: Path) -> list[RippleRule]:
     ]
 
 
+def _matches(path: str, pattern: str) -> bool:
+    """Gitignore-style match: '/**/' may collapse to '/' for files at a
+    shallower depth than the pattern requires (Python fnmatch needs the
+    '/**/' segment to be non-empty otherwise)."""
+    if fnmatch.fnmatch(path, pattern):
+        return True
+    if "/**/" in pattern:
+        if fnmatch.fnmatch(path, pattern.replace("/**/", "/")):
+            return True
+    return False
+
+
 def expand_ripple(rules: list[RippleRule], changed_files: list[str]) -> set[str]:
     """For each changed file, find all matching rules and union their
     revalidate lists."""
     affected: set[str] = set()
     for file in changed_files:
         for rule in rules:
-            if fnmatch.fnmatch(file, rule.match):
+            if _matches(file, rule.match):
                 affected.update(rule.revalidate)
     return affected

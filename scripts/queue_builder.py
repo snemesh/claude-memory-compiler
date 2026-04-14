@@ -8,6 +8,7 @@ Union both, deduplicate, sort by priority tier.
 """
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,43 @@ from articles_manifest import ArticleSpec
 from reverse_index import articles_affected_by, build_reverse_index
 from ripple_map import RippleRule, expand_ripple
 from topo import ArticlePriority, priority_sort
+
+
+def _matches_pattern(path: str, pattern: str) -> bool:
+    """Gitignore-style match: '**/' means zero-or-more path segments.
+
+    Python's fnmatch requires '**/' to match at least one segment (since its
+    '*' already crosses '/' greedily, '**/X' becomes '*/X' which requires a
+    literal '/'). We additionally try the pattern with '/**/' collapsed to
+    '/' so top-level files under a prefix also match.
+    """
+    if fnmatch.fnmatch(path, pattern):
+        return True
+    if "/**/" in pattern:
+        collapsed = pattern.replace("/**/", "/")
+        if fnmatch.fnmatch(path, collapsed):
+            return True
+    return False
+
+
+def _articles_from_manifest_globs(
+    changed_files: list[str],
+    manifest: list[ArticleSpec],
+) -> set[str]:
+    """Match changed files against each ArticleSpec's sources globs.
+
+    Covers the first-compile case: no provenance exists yet, so
+    reverse_index is empty, but the manifest declares which articles
+    own which file patterns.
+    """
+    affected: set[str] = set()
+    for spec in manifest:
+        for pattern in spec.sources:
+            for path in changed_files:
+                if _matches_pattern(path, pattern):
+                    affected.add(spec.slug)
+                    break
+    return affected
 
 
 @dataclass(frozen=True)
@@ -39,7 +77,8 @@ def build_queue(
     reverse_idx = build_reverse_index(wiki_dir)
     from_provenance = articles_affected_by(reverse_idx, changed_files)
     from_ripple = expand_ripple(ripple_rules, changed_files)
-    slugs = from_provenance | from_ripple
+    from_manifest = _articles_from_manifest_globs(changed_files, manifest)
+    slugs = from_provenance | from_ripple | from_manifest
 
     # Lookup priorities from manifest
     priority_by_slug = {spec.slug: spec.priority for spec in manifest}
