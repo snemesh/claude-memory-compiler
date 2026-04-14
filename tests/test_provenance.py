@@ -79,3 +79,25 @@ def test_read_provenance_no_frontmatter_returns_none(tmp_path):
 
 def test_read_provenance_missing_file_returns_none(tmp_path):
     assert read_provenance(tmp_path / "nonexistent.md") is None
+
+
+def test_read_provenance_alien_frontmatter_shape_returns_none(tmp_path):
+    """Real-world regression: existing wiki articles use `sources: <int>`
+    (source-doc count) rather than our list-of-dicts shape. Must return None
+    without raising so reverse_index silently skips such articles.
+    """
+    article = tmp_path / "adr.md"
+    article.write_text(
+        "---\ntitle: ADR-001\ntype: decision\nsources: 1\n---\n\n# ADR\n\nBody.\n",
+        encoding="utf-8",
+    )
+    assert read_provenance(article) is None
+
+
+def test_read_provenance_source_item_missing_keys_returns_none(tmp_path):
+    article = tmp_path / "bad.md"
+    article.write_text(
+        "---\nsources:\n  - not_a_path: x\n    not_a_sha: y\n---\n\n# X\n\nB.\n",
+        encoding="utf-8",
+    )
+    assert read_provenance(article) is None

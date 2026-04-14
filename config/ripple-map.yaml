@@ -1,18 +1,16 @@
 # Non-obvious cross-service dependencies.
-# Auto-seed rationale: patterns below reflect proto-import edges and
-# api-gateway routing known at spec time (2026-04-14).
-# Human-editable — add hidden deps (shared DB tables, Kafka topics, events).
+# Paths match how git reports them in the Arena monorepo (arena/bcs-arena/ prefix).
 
 patterns:
-  - match: "proto/clubs/**"
+  - match: "arena/bcs-arena/proto/clubs/**"
     revalidate: [api-gateway, club-finance, referrals, club-self-registration]
-  - match: "proto/auth/**"
+  - match: "arena/bcs-arena/proto/auth/**"
     revalidate: [api-gateway, fan-registration]
-  - match: "proto/referrals/**"
+  - match: "arena/bcs-arena/proto/referrals/**"
     revalidate: [api-gateway, agents, club-finance]
-  - match: "services/auth-service/internal/jwt/**"
+  - match: "arena/bcs-arena/services/auth-service/internal/jwt/**"
     revalidate: [fan-registration, club-self-registration, wallet]
-  - match: "services/referrals/internal/event/**"
+  - match: "arena/bcs-arena/services/referrals/internal/event/**"
     revalidate: [agents, club-finance]
-  - match: "services/api-gateway/internal/service_v2/**"
+  - match: "arena/bcs-arena/services/api-gateway/internal/service_v2/**"
     revalidate: [api-gateway, overview]

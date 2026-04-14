@@ -49,7 +49,14 @@ def read_provenance(article: Path) -> Provenance | None:
         return None
 
     raw_sources = data.get("sources", [])
-    sources = [SourceRef(path=s["path"], sha=s["sha"]) for s in raw_sources]
+    # Ignore articles whose sources field doesn't match our shape
+    # (e.g. existing wiki uses `sources: <int>` for source-document count).
+    if not isinstance(raw_sources, list):
+        return None
+    try:
+        sources = [SourceRef(path=s["path"], sha=s["sha"]) for s in raw_sources]
+    except (TypeError, KeyError):
+        return None
     compiled_at_raw = data.get("compiled_at")
     if isinstance(compiled_at_raw, str):
         compiled_at = datetime.fromisoformat(compiled_at_raw)
