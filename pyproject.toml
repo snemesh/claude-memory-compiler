@@ -7,7 +7,21 @@ dependencies = [
     "claude-agent-sdk>=0.1.29",
     "python-dotenv>=1.0.0",
     "tzdata>=2024.1",
+    "requests>=2.32",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "freezegun>=1.5",
 ]
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]
+addopts = "-v --tb=short"
